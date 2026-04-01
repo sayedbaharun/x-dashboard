@@ -4,7 +4,7 @@ import Head from "next/head";
 export default function Home() {
   const [tweetText, setTweetText] = useState("");
   const [status, setStatus] = useState(null);
-  const [account, setAccount] = useState(null);
+  const [credentialsOk, setCredentialsOk] = useState(null);
   const [loading, setLoading] = useState(false);
 
   async function verifyAccount() {
@@ -13,13 +13,15 @@ export default function Home() {
     try {
       const res = await fetch("/api/verify");
       const data = await res.json();
-      if (res.ok && data.data) {
-        setAccount(data.data);
-        setStatus({ type: "success", msg: "Connected to @" + data.data.username });
+      if (res.ok && data.configured) {
+        setCredentialsOk(true);
+        setStatus({ type: "success", msg: "All 4 credentials are configured ✓ — post a tweet to test end-to-end." });
       } else {
-        setStatus({ type: "error", msg: "Failed: " + JSON.stringify(data.error || data) });
+        setCredentialsOk(false);
+        setStatus({ type: "error", msg: data.error || "Credential check failed." });
       }
     } catch (err) {
+      setCredentialsOk(false);
       setStatus({ type: "error", msg: "Network error: " + err.message });
     }
     setLoading(false);
@@ -40,7 +42,7 @@ export default function Home() {
         setStatus({
           type: "success",
           msg: "Tweet posted! ID: " + data.data.id,
-          link: "https://x.com/" + (account?.username || "i") + "/status/" + data.data.id,
+          link: "https://x.com/i/status/" + data.data.id,
         });
         setTweetText("");
       } else {
@@ -63,26 +65,20 @@ export default function Home() {
         <h1 style={styles.title}>X Dashboard</h1>
         <p style={styles.subtitle}>Post and manage tweets</p>
 
-        {/* Step 1: Verify */}
         <div style={styles.card}>
-          <h2 style={styles.cardTitle}>1. Verify Connection</h2>
+          <h2 style={styles.cardTitle}>1. Check Credentials</h2>
+          <p style={styles.hint}>Confirms your Vercel env vars are set. Free-tier safe — no X API call made.</p>
           <button onClick={verifyAccount} disabled={loading} style={styles.btnSecondary}>
-            {loading ? "Checking..." : "Test Connection"}
+            {loading ? "Checking..." : "Check Credentials"}
           </button>
-          {account && (
-            <div style={styles.accountInfo}>
-              <strong>@{account.username}</strong> — {account.name}
-              <br />
-              <span style={styles.stats}>
-                {account.public_metrics?.followers_count} followers · {account.public_metrics?.tweet_count} tweets
-              </span>
-            </div>
+          {credentialsOk === true && (
+            <div style={styles.credBadge}>✓ Credentials configured</div>
           )}
         </div>
 
-        {/* Step 2: Post */}
         <div style={styles.card}>
           <h2 style={styles.cardTitle}>2. Post a Tweet</h2>
+          <p style={styles.hint}>This is the real test — free tier allows posting.</p>
           <textarea
             value={tweetText}
             onChange={(e) => setTweetText(e.target.value)}
@@ -105,7 +101,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Status Messages */}
         {status && (
           <div
             style={{
@@ -137,18 +132,8 @@ const styles = {
     background: "#000",
     minHeight: "100vh",
   },
-  title: {
-    fontSize: 28,
-    fontWeight: 700,
-    margin: 0,
-    color: "#fff",
-  },
-  subtitle: {
-    fontSize: 14,
-    color: "#71767b",
-    marginTop: 4,
-    marginBottom: 32,
-  },
+  title: { fontSize: 28, fontWeight: 700, margin: 0, color: "#fff" },
+  subtitle: { fontSize: 14, color: "#71767b", marginTop: 4, marginBottom: 32 },
   card: {
     background: "#16181c",
     borderRadius: 12,
@@ -156,12 +141,8 @@ const styles = {
     marginBottom: 16,
     border: "1px solid #2f3336",
   },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: 600,
-    margin: "0 0 12px 0",
-    color: "#e7e9ea",
-  },
+  cardTitle: { fontSize: 16, fontWeight: 600, margin: "0 0 4px 0", color: "#e7e9ea" },
+  hint: { fontSize: 12, color: "#71767b", margin: "0 0 12px 0" },
   textarea: {
     width: "100%",
     minHeight: 100,
@@ -176,16 +157,8 @@ const styles = {
     boxSizing: "border-box",
     outline: "none",
   },
-  row: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 12,
-  },
-  charCount: {
-    fontSize: 13,
-    color: "#71767b",
-  },
+  row: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12 },
+  charCount: { fontSize: 13, color: "#71767b" },
   btnPrimary: {
     background: "#1d9bf0",
     color: "#fff",
@@ -206,28 +179,16 @@ const styles = {
     fontWeight: 600,
     cursor: "pointer",
   },
-  accountInfo: {
+  credBadge: {
     marginTop: 12,
-    padding: 12,
-    background: "#000",
+    padding: "8px 12px",
+    background: "#0f1f0f",
+    border: "1px solid #22c55e",
     borderRadius: 8,
-    fontSize: 14,
-  },
-  stats: {
-    color: "#71767b",
     fontSize: 13,
-  },
-  status: {
-    padding: 16,
-    borderRadius: 12,
-    border: "1px solid",
-    fontSize: 14,
-  },
-  link: {
-    color: "#1d9bf0",
-    textDecoration: "none",
-    marginTop: 8,
+    color: "#22c55e",
     display: "inline-block",
-    fontSize: 13,
   },
+  status: { padding: 16, borderRadius: 12, border: "1px solid", fontSize: 14 },
+  link: { color: "#1d9bf0", textDecoration: "none", marginTop: 8, display: "inline-block", fontSize: 13 },
 };
