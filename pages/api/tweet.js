@@ -16,6 +16,14 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Tweet exceeds 280 characters" });
   }
 
+  // Surface missing env vars early
+  const missing = ["X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_SECRET"].filter(
+    (k) => !process.env[k]
+  );
+  if (missing.length > 0) {
+    return res.status(500).json({ error: `Missing env vars: ${missing.join(", ")}` });
+  }
+
   const oauth = new OAuth({
     consumer: {
       key: process.env.X_API_KEY,
@@ -51,7 +59,11 @@ export default async function handler(req, res) {
     const data = await response.json();
 
     if (!response.ok) {
-      return res.status(response.status).json({ error: data });
+      // Return full X error body so the UI can show it
+      return res.status(response.status).json({
+        error: data.detail || data.title || JSON.stringify(data),
+        detail: data,
+      });
     }
 
     return res.status(200).json(data);
