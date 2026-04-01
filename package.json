@@ -11,7 +11,6 @@
     "next": "14.2.5",
     "react": "18.3.1",
     "react-dom": "18.3.1",
-    "oauth-1.0a": "2.2.6",
-    "crypto-js": "4.2.0"
+    "twitter-api-v2": "1.18.2"
   }
 }
