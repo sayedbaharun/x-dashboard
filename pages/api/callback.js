@@ -1,3 +1,5 @@
+import crypto from "crypto";
+
 function parseCookies(req) {
   const cookie = req.headers.cookie || "";
   return Object.fromEntries(
@@ -8,12 +10,18 @@ function parseCookies(req) {
   );
 }
 
+function getAccounts(cookies) {
+  try {
+    return JSON.parse(decodeURIComponent(cookies.x_accounts || "[]"));
+  } catch {
+    return [];
+  }
+}
+
 export default async function handler(req, res) {
   const { code, state, error } = req.query;
 
-  if (error) {
-    return res.redirect("/?error=" + encodeURIComponent(error));
-  }
+  if (error) return res.redirect("/?error=" + encodeURIComponent(error));
 
   const cookies = parseCookies(req);
 
@@ -22,9 +30,7 @@ export default async function handler(req, res) {
   }
 
   const verifier = cookies.x_oauth_verifier;
-  if (!verifier) {
-    return res.redirect("/?error=missing_verifier");
-  }
+  if (!verifier) return res.redirect("/?error=missing_verifier");
 
   try {
     const tokenRes = await fetch("https://api.twitter.com/2/oauth2/token", {
@@ -44,13 +50,51 @@ export default async function handler(req, res) {
     });
 
     const data = await tokenRes.json();
-
     if (!tokenRes.ok || !data.access_token) {
       return res.redirect("/?error=" + encodeURIComponent(data.error_description || "token_exchange_failed"));
     }
 
+    const newToken = data.access_token;
+
+    // Try to get username with the new token
+    let username = null;
+    let name = null;
+    try {
+      const userRes = await fetch("https://api.twitter.com/2/users/me", {
+        headers: { Authorization: `Bearer ${newToken}` },
+      });
+      if (userRes.ok) {
+        const ud = await userRes.json();
+        username = ud.data?.username || null;
+        name = ud.data?.name || null;
+      }
+    } catch {}
+
+    // Merge into existing accounts list
+    const accounts = getAccounts(cookies);
+    const existingIdx = username ? accounts.findIndex(a => a.username === username) : -1;
+
+    let accountId;
+    if (existingIdx >= 0) {
+      // Update token for existing account
+      accounts[existingIdx].token = newToken;
+      if (name) accounts[existingIdx].name = name;
+      accountId = accounts[existingIdx].id;
+    } else {
+      accountId = crypto.randomBytes(8).toString("hex");
+      accounts.push({
+        id: accountId,
+        username: username || `account_${accounts.length + 1}`,
+        name: name || "",
+        token: newToken,
+      });
+    }
+
+    const encoded = encodeURIComponent(JSON.stringify(accounts));
+    const cookieOpts = "HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=86400";
     res.setHeader("Set-Cookie", [
-      `x_access_token=${data.access_token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=7200`,
+      `x_accounts=${encoded}; ${cookieOpts}`,
+      `x_active_id=${accountId}; ${cookieOpts}`,
       "x_oauth_state=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0",
       "x_oauth_verifier=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0",
     ]);

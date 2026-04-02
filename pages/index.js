@@ -3,27 +3,59 @@ import Head from "next/head";
 
 export default function Home() {
   const [tweetText, setTweetText] = useState("");
+  const [accounts, setAccounts] = useState([]);
+  const [activeId, setActiveId] = useState(null);
+  const [loggedIn, setLoggedIn] = useState(null);
   const [verifyResult, setVerifyResult] = useState(null);
   const [tweetResult, setTweetResult] = useState(null);
-  const [account, setAccount] = useState(null);
-  const [loggedIn, setLoggedIn] = useState(null); // null = loading
   const [loading, setLoading] = useState("");
   const [authError, setAuthError] = useState(null);
 
+  const activeAccount = accounts.find(a => a.id === activeId) || accounts[0] || null;
+
   useEffect(() => {
-    // Check for error in URL (from OAuth callback)
     const params = new URLSearchParams(window.location.search);
     const err = params.get("error");
     if (err) {
       setAuthError(decodeURIComponent(err));
       window.history.replaceState({}, "", "/");
     }
-
-    fetch("/api/me")
-      .then(r => r.json())
-      .then(d => setLoggedIn(d.loggedIn))
-      .catch(() => setLoggedIn(false));
+    loadAccounts();
   }, []);
+
+  async function loadAccounts() {
+    try {
+      const res = await fetch("/api/me");
+      const d = await res.json();
+      setLoggedIn(d.loggedIn);
+      setAccounts(d.accounts || []);
+      setActiveId(d.activeId);
+    } catch {
+      setLoggedIn(false);
+    }
+  }
+
+  async function switchAccount(id) {
+    setTweetResult(null);
+    setVerifyResult(null);
+    await fetch("/api/accounts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "switch", id }),
+    });
+    setActiveId(id);
+  }
+
+  async function removeAccount(id) {
+    await fetch("/api/accounts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "remove", id }),
+    });
+    await loadAccounts();
+    setTweetResult(null);
+    setVerifyResult(null);
+  }
 
   async function verifyAccount() {
     setLoading("verify");
@@ -32,7 +64,6 @@ export default function Home() {
       const res = await fetch("/api/verify");
       const json = await res.json();
       setVerifyResult(json);
-      if (json.ok && json.data?.data) setAccount(json.data.data);
     } catch (err) {
       setVerifyResult({ ok: false, error: "Network error: " + err.message });
     }
@@ -74,18 +105,11 @@ export default function Home() {
       </Head>
 
       <div style={styles.container}>
-        <div style={styles.header}>
-          <div>
-            <h1 style={styles.title}>X Dashboard</h1>
-            <p style={styles.subtitle}>Post and manage tweets</p>
-          </div>
-          {loggedIn && (
-            <a href="/api/logout" style={styles.logoutBtn}>Log out</a>
-          )}
-        </div>
+        <h1 style={styles.title}>X Dashboard</h1>
+        <p style={styles.subtitle}>Post and manage tweets</p>
 
         {authError && (
-          <div style={styles.errorBox}>
+          <div style={{ ...styles.errorBox, marginBottom: 16 }}>
             <strong>Auth error:</strong> {authError}
           </div>
         )}
@@ -94,47 +118,83 @@ export default function Home() {
           <div style={styles.loginCard}>
             <p style={styles.loginText}>Connect your X account to get started.</p>
             <a href="/api/auth" style={styles.loginBtn}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style={{ marginRight: 8, verticalAlign: "middle" }}>
-                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-              </svg>
+              <XIcon />
               Login with X
             </a>
           </div>
         ) : (
           <>
+            {/* Account Switcher */}
             <div style={styles.card}>
-              <h2 style={styles.cardTitle}>1. Test API Connection</h2>
-              <p style={styles.cardDesc}>Calls GET /2/users/me — requires Basic tier or above.</p>
+              <div style={styles.accountsHeader}>
+                <span style={styles.cardTitle}>Accounts</span>
+                <a href="/api/auth?add=1" style={styles.addBtn}>+ Add account</a>
+              </div>
+
+              <div style={styles.accountsList}>
+                {accounts.map(acc => (
+                  <div
+                    key={acc.id}
+                    style={{
+                      ...styles.accountPill,
+                      ...(acc.id === activeId ? styles.accountPillActive : {}),
+                    }}
+                    onClick={() => switchAccount(acc.id)}
+                  >
+                    <div style={styles.accountAvatar}>
+                      {(acc.username || "?")[0].toUpperCase()}
+                    </div>
+                    <div style={styles.accountInfo}>
+                      <div style={styles.accountName}>{acc.name || acc.username}</div>
+                      <div style={styles.accountHandle}>@{acc.username}</div>
+                    </div>
+                    {acc.id === activeId && (
+                      <div style={styles.activeDot} title="Active" />
+                    )}
+                    <button
+                      style={styles.removeBtn}
+                      onClick={e => { e.stopPropagation(); removeAccount(acc.id); }}
+                      title="Disconnect"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Verify */}
+            <div style={styles.card}>
+              <h2 style={styles.cardTitle}>Test Connection</h2>
+              <p style={styles.cardDesc}>
+                Calls X API for <strong>@{activeAccount?.username}</strong>. Requires Basic tier.
+              </p>
               <button onClick={verifyAccount} disabled={loading === "verify"} style={styles.btnSecondary}>
                 {loading === "verify" ? "Testing..." : "Test Connection"}
               </button>
-
-              {account && (
-                <div style={styles.accountBox}>
-                  <span style={styles.greenDot}>●</span>
-                  <strong>@{account.username}</strong> — {account.name}
-                  {account.public_metrics && (
-                    <div style={styles.stats}>
-                      {account.public_metrics.followers_count} followers · {account.public_metrics.tweet_count} tweets
-                    </div>
-                  )}
-                </div>
-              )}
-
               {verifyResult && !verifyResult.ok && (
                 <div style={styles.errorBox}>
-                  <strong>Error (HTTP {verifyResult.http_status} {verifyResult.http_status_text})</strong>
+                  <strong>Error (HTTP {verifyResult.http_status})</strong>
                   <pre style={styles.pre}>{JSON.stringify(verifyResult.data || verifyResult.error, null, 2)}</pre>
+                </div>
+              )}
+              {verifyResult && verifyResult.ok && (
+                <div style={styles.successBox}>
+                  <strong>Connected ✓</strong>
+                  <pre style={styles.pre}>{JSON.stringify(verifyResult.data?.data, null, 2)}</pre>
                 </div>
               )}
             </div>
 
+            {/* Post Tweet */}
             <div style={styles.card}>
-              <h2 style={styles.cardTitle}>2. Post a Tweet</h2>
-              <p style={styles.cardDesc}>Works on free tier — this is the real end-to-end test.</p>
+              <h2 style={styles.cardTitle}>Post a Tweet</h2>
+              <p style={styles.cardDesc}>
+                Posting as <strong>@{activeAccount?.username}</strong>
+              </p>
               <textarea
                 value={tweetText}
-                onChange={(e) => setTweetText(e.target.value)}
+                onChange={e => setTweetText(e.target.value)}
                 placeholder="What's happening?"
                 maxLength={280}
                 style={styles.textarea}
@@ -155,7 +215,7 @@ export default function Home() {
                   <strong>Tweet posted!</strong>
                   {tweetResult.data?.data?.id && (
                     <a
-                      href={"https://x.com/" + (account?.username || "i") + "/status/" + tweetResult.data.data.id}
+                      href={`https://x.com/${activeAccount?.username || "i"}/status/${tweetResult.data.data.id}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       style={styles.link}
@@ -165,18 +225,29 @@ export default function Home() {
                   )}
                 </div>
               )}
-
               {tweetResult && !tweetResult.ok && (
                 <div style={styles.errorBox}>
-                  <strong>Failed (HTTP {tweetResult.http_status} {tweetResult.http_status_text})</strong>
+                  <strong>Failed (HTTP {tweetResult.http_status})</strong>
                   <pre style={styles.pre}>{JSON.stringify(tweetResult.data || tweetResult.error, null, 2)}</pre>
                 </div>
               )}
+            </div>
+
+            <div style={{ textAlign: "center", marginTop: 8 }}>
+              <a href="/api/logout" style={styles.logoutLink}>Disconnect all accounts</a>
             </div>
           </>
         )}
       </div>
     </>
+  );
+}
+
+function XIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style={{ marginRight: 8, verticalAlign: "middle" }}>
+      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+    </svg>
   );
 }
 
@@ -186,13 +257,40 @@ const styles = {
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     color: "#e7e9ea", background: "#000", minHeight: "100vh",
   },
-  header: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 32 },
   title: { fontSize: 28, fontWeight: 700, margin: 0, color: "#fff" },
-  subtitle: { fontSize: 14, color: "#71767b", marginTop: 4, marginBottom: 0 },
-  logoutBtn: {
-    fontSize: 13, color: "#71767b", textDecoration: "none",
-    border: "1px solid #2f3336", borderRadius: 20, padding: "6px 14px",
-    marginTop: 4, display: "inline-block",
+  subtitle: { fontSize: 14, color: "#71767b", marginTop: 4, marginBottom: 32 },
+  card: {
+    background: "#16181c", borderRadius: 12, padding: 20,
+    marginBottom: 16, border: "1px solid #2f3336",
+  },
+  cardTitle: { fontSize: 15, fontWeight: 600, color: "#e7e9ea" },
+  cardDesc: { fontSize: 13, color: "#71767b", margin: "4px 0 12px 0" },
+  accountsHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
+  addBtn: {
+    fontSize: 13, color: "#1d9bf0", textDecoration: "none",
+    border: "1px solid #1d9bf0", borderRadius: 20, padding: "4px 12px",
+  },
+  accountsList: { display: "flex", flexDirection: "column", gap: 8 },
+  accountPill: {
+    display: "flex", alignItems: "center", gap: 10,
+    padding: "10px 12px", borderRadius: 10,
+    border: "1px solid #2f3336", cursor: "pointer",
+    background: "#0d0d0d", transition: "border-color 0.15s",
+  },
+  accountPillActive: { border: "1px solid #1d9bf0", background: "#001824" },
+  accountAvatar: {
+    width: 36, height: 36, borderRadius: "50%",
+    background: "#1d9bf0", color: "#fff",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    fontSize: 15, fontWeight: 700, flexShrink: 0,
+  },
+  accountInfo: { flex: 1, minWidth: 0 },
+  accountName: { fontSize: 14, fontWeight: 600, color: "#e7e9ea", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  accountHandle: { fontSize: 12, color: "#71767b" },
+  activeDot: { width: 8, height: 8, borderRadius: "50%", background: "#1d9bf0", flexShrink: 0 },
+  removeBtn: {
+    background: "none", border: "none", color: "#71767b",
+    fontSize: 18, cursor: "pointer", padding: "0 4px", lineHeight: 1, flexShrink: 0,
   },
   loginCard: {
     background: "#16181c", borderRadius: 12, padding: 32,
@@ -205,12 +303,6 @@ const styles = {
     borderRadius: 20, padding: "10px 24px",
     fontSize: 15, fontWeight: 700, textDecoration: "none",
   },
-  card: {
-    background: "#16181c", borderRadius: 12, padding: 20,
-    marginBottom: 16, border: "1px solid #2f3336",
-  },
-  cardTitle: { fontSize: 16, fontWeight: 600, margin: "0 0 4px 0", color: "#e7e9ea" },
-  cardDesc: { fontSize: 13, color: "#71767b", margin: "0 0 12px 0" },
   textarea: {
     width: "100%", minHeight: 100, background: "#000",
     border: "1px solid #2f3336", borderRadius: 8, color: "#e7e9ea",
@@ -227,12 +319,6 @@ const styles = {
     background: "transparent", color: "#1d9bf0", border: "1px solid #1d9bf0",
     borderRadius: 20, padding: "8px 20px", fontSize: 14, fontWeight: 600, cursor: "pointer",
   },
-  accountBox: {
-    marginTop: 12, padding: 12, background: "#0f1f0f",
-    borderRadius: 8, border: "1px solid #22c55e", fontSize: 14,
-  },
-  greenDot: { color: "#22c55e", marginRight: 6 },
-  stats: { color: "#71767b", fontSize: 13, marginTop: 4 },
   successBox: {
     marginTop: 12, padding: 12, background: "#0f1f0f",
     borderRadius: 8, border: "1px solid #22c55e", fontSize: 14,
@@ -246,4 +332,5 @@ const styles = {
     whiteSpace: "pre-wrap", wordBreak: "break-all", fontFamily: "monospace",
   },
   link: { color: "#1d9bf0", textDecoration: "none", marginLeft: 8, fontSize: 13 },
+  logoutLink: { fontSize: 13, color: "#71767b", textDecoration: "none" },
 };

@@ -10,5 +10,17 @@ function parseCookies(req) {
 
 export default function handler(req, res) {
   const cookies = parseCookies(req);
-  return res.status(200).json({ loggedIn: !!cookies.x_access_token });
+  let accounts = [];
+  try {
+    accounts = JSON.parse(decodeURIComponent(cookies.x_accounts || "[]"));
+  } catch {}
+
+  const activeId = cookies.x_active_id || accounts[0]?.id || null;
+
+  return res.status(200).json({
+    loggedIn: accounts.length > 0,
+    // Strip tokens before sending to frontend
+    accounts: accounts.map(({ id, username, name }) => ({ id, username, name })),
+    activeId,
+  });
 }

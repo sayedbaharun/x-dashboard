@@ -19,6 +19,11 @@ export default function handler(req, res) {
     code_challenge_method: "S256",
   });
 
+  // force_login=true when adding another account so X shows account picker
+  if (req.query.add) {
+    params.set("force_login", "true");
+  }
+
   const cookieOpts = "HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600";
   res.setHeader("Set-Cookie", [
     `x_oauth_state=${state}; ${cookieOpts}`,
