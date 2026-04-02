@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Head from "next/head";
 
 export default function Home() {
@@ -6,7 +6,24 @@ export default function Home() {
   const [verifyResult, setVerifyResult] = useState(null);
   const [tweetResult, setTweetResult] = useState(null);
   const [account, setAccount] = useState(null);
+  const [loggedIn, setLoggedIn] = useState(null); // null = loading
   const [loading, setLoading] = useState("");
+  const [authError, setAuthError] = useState(null);
+
+  useEffect(() => {
+    // Check for error in URL (from OAuth callback)
+    const params = new URLSearchParams(window.location.search);
+    const err = params.get("error");
+    if (err) {
+      setAuthError(decodeURIComponent(err));
+      window.history.replaceState({}, "", "/");
+    }
+
+    fetch("/api/me")
+      .then(r => r.json())
+      .then(d => setLoggedIn(d.loggedIn))
+      .catch(() => setLoggedIn(false));
+  }, []);
 
   async function verifyAccount() {
     setLoading("verify");
@@ -15,9 +32,7 @@ export default function Home() {
       const res = await fetch("/api/verify");
       const json = await res.json();
       setVerifyResult(json);
-      if (json.ok && json.data?.data) {
-        setAccount(json.data.data);
-      }
+      if (json.ok && json.data?.data) setAccount(json.data.data);
     } catch (err) {
       setVerifyResult({ ok: false, error: "Network error: " + err.message });
     }
@@ -36,13 +51,19 @@ export default function Home() {
       });
       const json = await res.json();
       setTweetResult(json);
-      if (json.ok) {
-        setTweetText("");
-      }
+      if (json.ok) setTweetText("");
     } catch (err) {
       setTweetResult({ ok: false, error: "Network error: " + err.message });
     }
     setLoading("");
+  }
+
+  if (loggedIn === null) {
+    return (
+      <div style={{ ...styles.container, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <span style={{ color: "#71767b" }}>Loading...</span>
+      </div>
+    );
   }
 
   return (
@@ -53,82 +74,107 @@ export default function Home() {
       </Head>
 
       <div style={styles.container}>
-        <h1 style={styles.title}>X Dashboard</h1>
-        <p style={styles.subtitle}>Post and manage tweets</p>
+        <div style={styles.header}>
+          <div>
+            <h1 style={styles.title}>X Dashboard</h1>
+            <p style={styles.subtitle}>Post and manage tweets</p>
+          </div>
+          {loggedIn && (
+            <a href="/api/logout" style={styles.logoutBtn}>Log out</a>
+          )}
+        </div>
 
-        <div style={styles.card}>
-          <h2 style={styles.cardTitle}>1. Test API Connection</h2>
-          <p style={styles.cardDesc}>Calls X API to confirm your credentials work.</p>
-          <button onClick={verifyAccount} disabled={loading === "verify"} style={styles.btnSecondary}>
-            {loading === "verify" ? "Testing..." : "Test Connection"}
-          </button>
+        {authError && (
+          <div style={styles.errorBox}>
+            <strong>Auth error:</strong> {authError}
+          </div>
+        )}
 
-          {account && (
-            <div style={styles.accountBox}>
-              <span style={styles.greenDot}>●</span>
-              <strong>@{account.username}</strong> — {account.name}
-              {account.public_metrics && (
-                <div style={styles.stats}>
-                  {account.public_metrics.followers_count} followers · {account.public_metrics.tweet_count} tweets
+        {!loggedIn ? (
+          <div style={styles.loginCard}>
+            <p style={styles.loginText}>Connect your X account to get started.</p>
+            <a href="/api/auth" style={styles.loginBtn}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style={{ marginRight: 8, verticalAlign: "middle" }}>
+                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+              </svg>
+              Login with X
+            </a>
+          </div>
+        ) : (
+          <>
+            <div style={styles.card}>
+              <h2 style={styles.cardTitle}>1. Test API Connection</h2>
+              <p style={styles.cardDesc}>Calls GET /2/users/me — requires Basic tier or above.</p>
+              <button onClick={verifyAccount} disabled={loading === "verify"} style={styles.btnSecondary}>
+                {loading === "verify" ? "Testing..." : "Test Connection"}
+              </button>
+
+              {account && (
+                <div style={styles.accountBox}>
+                  <span style={styles.greenDot}>●</span>
+                  <strong>@{account.username}</strong> — {account.name}
+                  {account.public_metrics && (
+                    <div style={styles.stats}>
+                      {account.public_metrics.followers_count} followers · {account.public_metrics.tweet_count} tweets
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {verifyResult && !verifyResult.ok && (
+                <div style={styles.errorBox}>
+                  <strong>Error (HTTP {verifyResult.http_status} {verifyResult.http_status_text})</strong>
+                  <pre style={styles.pre}>{JSON.stringify(verifyResult.data || verifyResult.error, null, 2)}</pre>
                 </div>
               )}
             </div>
-          )}
 
-          {verifyResult && !verifyResult.ok && (
-            <div style={styles.errorBox}>
-              <strong>Error (HTTP {verifyResult.http_status} {verifyResult.http_status_text})</strong>
-              <pre style={styles.pre}>{JSON.stringify(verifyResult.data || verifyResult.error, null, 2)}</pre>
-            </div>
-          )}
-        </div>
-
-        <div style={styles.card}>
-          <h2 style={styles.cardTitle}>2. Post a Tweet</h2>
-          <textarea
-            value={tweetText}
-            onChange={(e) => setTweetText(e.target.value)}
-            placeholder="What's happening?"
-            maxLength={280}
-            style={styles.textarea}
-          />
-          <div style={styles.row}>
-            <span style={styles.charCount}>{tweetText.length}/280</span>
-            <button
-              onClick={postTweet}
-              disabled={loading === "tweet" || !tweetText.trim()}
-              style={{
-                ...styles.btnPrimary,
-                opacity: loading === "tweet" || !tweetText.trim() ? 0.5 : 1,
-              }}
-            >
-              {loading === "tweet" ? "Posting..." : "Post Tweet"}
-            </button>
-          </div>
-
-          {tweetResult && tweetResult.ok && (
-            <div style={styles.successBox}>
-              <strong>Tweet posted!</strong>
-              {tweetResult.data?.data?.id && (
-                <a
-                  href={"https://x.com/" + (account?.username || "i") + "/status/" + tweetResult.data.data.id}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={styles.link}
+            <div style={styles.card}>
+              <h2 style={styles.cardTitle}>2. Post a Tweet</h2>
+              <p style={styles.cardDesc}>Works on free tier — this is the real end-to-end test.</p>
+              <textarea
+                value={tweetText}
+                onChange={(e) => setTweetText(e.target.value)}
+                placeholder="What's happening?"
+                maxLength={280}
+                style={styles.textarea}
+              />
+              <div style={styles.row}>
+                <span style={styles.charCount}>{tweetText.length}/280</span>
+                <button
+                  onClick={postTweet}
+                  disabled={loading === "tweet" || !tweetText.trim()}
+                  style={{ ...styles.btnPrimary, opacity: loading === "tweet" || !tweetText.trim() ? 0.5 : 1 }}
                 >
-                  View on X →
-                </a>
+                  {loading === "tweet" ? "Posting..." : "Post Tweet"}
+                </button>
+              </div>
+
+              {tweetResult && tweetResult.ok && (
+                <div style={styles.successBox}>
+                  <strong>Tweet posted!</strong>
+                  {tweetResult.data?.data?.id && (
+                    <a
+                      href={"https://x.com/" + (account?.username || "i") + "/status/" + tweetResult.data.data.id}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={styles.link}
+                    >
+                      View on X →
+                    </a>
+                  )}
+                </div>
+              )}
+
+              {tweetResult && !tweetResult.ok && (
+                <div style={styles.errorBox}>
+                  <strong>Failed (HTTP {tweetResult.http_status} {tweetResult.http_status_text})</strong>
+                  <pre style={styles.pre}>{JSON.stringify(tweetResult.data || tweetResult.error, null, 2)}</pre>
+                </div>
               )}
             </div>
-          )}
-
-          {tweetResult && !tweetResult.ok && (
-            <div style={styles.errorBox}>
-              <strong>Failed (HTTP {tweetResult.http_status} {tweetResult.http_status_text})</strong>
-              <pre style={styles.pre}>{JSON.stringify(tweetResult.data || tweetResult.error, null, 2)}</pre>
-            </div>
-          )}
-        </div>
+          </>
+        )}
       </div>
     </>
   );
@@ -140,8 +186,25 @@ const styles = {
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     color: "#e7e9ea", background: "#000", minHeight: "100vh",
   },
+  header: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 32 },
   title: { fontSize: 28, fontWeight: 700, margin: 0, color: "#fff" },
-  subtitle: { fontSize: 14, color: "#71767b", marginTop: 4, marginBottom: 32 },
+  subtitle: { fontSize: 14, color: "#71767b", marginTop: 4, marginBottom: 0 },
+  logoutBtn: {
+    fontSize: 13, color: "#71767b", textDecoration: "none",
+    border: "1px solid #2f3336", borderRadius: 20, padding: "6px 14px",
+    marginTop: 4, display: "inline-block",
+  },
+  loginCard: {
+    background: "#16181c", borderRadius: 12, padding: 32,
+    border: "1px solid #2f3336", textAlign: "center",
+  },
+  loginText: { color: "#71767b", fontSize: 15, marginTop: 0, marginBottom: 24 },
+  loginBtn: {
+    display: "inline-flex", alignItems: "center",
+    background: "#fff", color: "#000",
+    borderRadius: 20, padding: "10px 24px",
+    fontSize: 15, fontWeight: 700, textDecoration: "none",
+  },
   card: {
     background: "#16181c", borderRadius: 12, padding: 20,
     marginBottom: 16, border: "1px solid #2f3336",
