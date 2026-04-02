@@ -25,5 +25,5 @@ export default function handler(req, res) {
     `x_oauth_verifier=${verifier}; ${cookieOpts}`,
   ]);
 
-  res.redirect(`https://twitter.com/i/oauth2/authorize?${params.toString()}`);
+  res.redirect(`https://x.com/i/oauth2/authorize?${params.toString()}`);
 }
